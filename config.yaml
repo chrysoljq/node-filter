@@ -1,0 +1,52 @@
+# mihomo-node-filter 配置文件
+
+# === 节点来源 ===
+sources:
+  # 订阅链接（取消注释并替换为你的链接）
+  # - type: subscription
+  #   url: "https://your-subscription-url.com/sub"
+  #   timeout: 30
+
+  # 本地文件
+  # - type: file
+  #   path: "./local_proxies.yaml"
+
+# === 筛选设置 ===
+filter:
+  # 是否启用连通性测试 + 出口 IP 检测（精确模式，需要 mihomo 二进制）
+  # false = 快速模式，仅通过入口 IP 检测
+  # true  = 精确模式，启动 mihomo 获取出口 IP 检测（更准确但更慢）
+  enable_connectivity_test: false
+
+  # 连通性测试配置（仅精确模式使用）
+  connectivity:
+    mihomo_bin: "mihomo"
+    test_url: "https://www.gstatic.com/generate_204"
+    timeout: 10
+
+  # 名称关键词黑名单（包含这些词的节点直接过滤）
+  name_blacklist:
+    - "过期"
+    - "剩余"
+    - "到期"
+    - "官网"
+    - "续费"
+    - "流量"
+    - "套餐"
+    - "订阅"
+
+  # 名称关键词白名单（强制保留，优先级高于一切检测）
+  name_whitelist: []
+
+# === 输出设置 ===
+output:
+  dir: "./output"
+  config_file: "filtered_config.yaml"
+  proxies_file: "filtered_proxies.yaml"
+  report_file: "filter_report.md"
+  mixed_port: 7890
+  api_port: 9090
+
+# === 日志 ===
+logging:
+  level: "INFO"

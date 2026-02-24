@@ -1,0 +1,188 @@
+# 已知的机房/云服务商 ASN 列表
+# 来源: 公开 ASN 数据库 + 社区维护
+# 格式: ASN号: 描述
+
+datacenter_asns:
+  # === 大型云服务商 ===
+  # Amazon / AWS
+  16509: "Amazon.com (AWS)"
+  14618: "Amazon.com (AWS)"
+  8987: "Amazon.com (AWS)"
+
+  # Google Cloud
+  15169: "Google LLC"
+  396982: "Google Cloud"
+  36492: "Google (AS36492)"
+
+  # Microsoft Azure
+  8075: "Microsoft Corporation"
+  8068: "Microsoft Corporation"
+
+  # Alibaba Cloud / 阿里云
+  45102: "Alibaba Cloud"
+  37963: "Alibaba Cloud"
+
+  # Tencent Cloud / 腾讯云
+  45090: "Tencent Cloud"
+  132203: "Tencent Cloud"
+  132591: "Tencent Cloud"
+
+  # Oracle Cloud
+  31898: "Oracle Cloud"
+
+  # IBM Cloud
+  36351: "IBM Cloud (SoftLayer)"
+
+  # === VPS / 主机商 ===
+  # DigitalOcean
+  14061: "DigitalOcean"
+
+  # Linode / Akamai
+  63949: "Linode (Akamai)"
+
+  # Vultr / Choopa
+  20473: "Choopa (Vultr)"
+
+  # Hetzner
+  24940: "Hetzner Online"
+  213230: "Hetzner"
+
+  # OVH
+  16276: "OVH SAS"
+
+  # Cloudflare (WARP 除外，但入口 IP 通常是 datacenter)
+  13335: "Cloudflare"
+
+  # BandwagonHost / IT7 Networks
+  25820: "IT7 Networks (BandwagonHost)"
+
+  # QuadraNet
+  8100: "QuadraNet"
+
+  # ColoCrossing
+  36352: "ColoCrossing"
+
+  # Contabo
+  51167: "Contabo"
+
+  # Hostwinds
+  54290: "Hostwinds"
+
+  # RackNerd (通常用 ColoCrossing 的 ASN)
+  # DediPath
+  35913: "DediPath"
+
+  # GreenCloud
+  40065: "GreenCloud"
+
+  # Dmit
+  906: "DMIT"
+  54574: "DMIT"
+
+  # HostDare
+  137409: "HostDare"
+
+  # V.PS / Xera
+  3214: "xTom"
+  62904: "xTom"
+
+  # BuyVM / FranTech
+  53667: "FranTech (BuyVM)"
+
+  # Cogent
+  174: "Cogent Communications"
+
+  # Zenlayer
+  21859: "Zenlayer"
+
+  # Packet / Equinix Metal
+  54825: "Packet (Equinix Metal)"
+
+  # Sakura / さくらインターネット
+  7684: "Sakura Internet"
+  9370: "Sakura Internet"
+
+  # === 常见 IDC / 数据中心 ===
+  # Hurricane Electric
+  6939: "Hurricane Electric"
+
+  # M247
+  9009: "M247"
+
+  # Leaseweb
+  60781: "Leaseweb"
+
+  # ServerAstra
+  212238: "ServerAstra"
+
+  # Psychz Networks
+  40676: "Psychz Networks"
+
+  # GigsGigsCloud
+  55933: "GigsGigsCloud"
+
+  # PCCW Global
+  3491: "PCCW Global"
+
+  # NTT / Dimension Data
+  2914: "NTT Global IP Network"
+
+  # GTT
+  3257: "GTT Communications"
+
+  # Telia
+  1299: "Telia Company"
+
+  # === 特殊标记 ===
+  # 一些常被用于代理的 hosting ASN
+  396356: "Maxihost"
+  399077: "BPE Holdings"
+  55720: "Gigabit Hosting"
+  46562: "Total Server Solutions"
+  30633: "Leaseweb USA"
+  59930: "Leaseweb Asia"
+
+# 机房相关的关键词，用于辅助判断 org/isp 名称
+datacenter_keywords:
+  - "hosting"
+  - "server"
+  - "cloud"
+  - "datacenter"
+  - "data center"
+  - "data centre"
+  - "colocation"
+  - "colo "
+  - "vps"
+  - "dedicated"
+  - "hetzner"
+  - "ovh"
+  - "digitalocean"
+  - "linode"
+  - "vultr"
+  - "choopa"
+  - "amazon"
+  - "aws"
+  - "google cloud"
+  - "microsoft"
+  - "azure"
+  - "oracle"
+  - "ibm"
+  - "softlayer"
+  - "rackspace"
+  - "contabo"
+  - "hostwinds"
+  - "quadranet"
+  - "colocrossing"
+  - "leaseweb"
+  - "packet"
+  - "equinix"
+  - "dmit"
+  - "bandwagon"
+  - "frantech"
+  - "buyvm"
+  - "cogent"
+  - "hurricane"
+  - "m247"
+  - "psychz"
+  - "zenlayer"
+  - "xtom"

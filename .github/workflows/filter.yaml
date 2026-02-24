@@ -1,0 +1,109 @@
+name: Daily Node Filter
+
+on:
+  schedule:
+    # 每天 UTC 02:00（北京时间 10:00）运行
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      subscription_urls:
+        description: '订阅链接（多个用换行分隔）'
+        required: false
+        type: string
+      mode:
+        description: '检测模式'
+        required: false
+        type: choice
+        default: 'precise'
+        options:
+          - precise   # 精确模式：mihomo 出口 IP 检测
+          - fast       # 快速模式：入口 IP 检测
+
+permissions:
+  contents: write
+
+jobs:
+  filter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -q -r requirements.txt
+
+      - name: Download latest mihomo
+        # 定时触发默认精确模式，手动触发看 mode 选择
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.mode != 'fast' }}
+        run: |
+          MIHOMO_VERSION=$(curl -sL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "Downloading mihomo ${MIHOMO_VERSION}..."
+          curl -sL -o mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/mihomo-linux-amd64-${MIHOMO_VERSION}.gz"
+          gunzip mihomo.gz
+          chmod +x mihomo
+          sudo mv mihomo /usr/local/bin/mihomo
+          mihomo -v
+
+      - name: Prepare config
+        env:
+          SUBSCRIPTION_URLS: ${{ secrets.SUBSCRIPTION_URLS }}
+          INPUT_URLS: ${{ github.event.inputs.subscription_urls }}
+        run: |
+          URLS="${INPUT_URLS:-$SUBSCRIPTION_URLS}"
+
+          if [ -z "$URLS" ]; then
+            echo "::error::未设置订阅链接。请在 Settings → Secrets 中添加 SUBSCRIPTION_URLS。"
+            exit 1
+          fi
+
+          python3 -c "
+          import yaml
+          from pathlib import Path
+
+          urls = '''${URLS}'''.strip().splitlines()
+          config = yaml.safe_load(Path('config.yaml').read_text())
+
+          config['sources'] = []
+          for url in urls:
+              url = url.strip()
+              if url:
+                  config['sources'].append({'type': 'subscription', 'url': url})
+
+          Path('config.yaml').write_text(yaml.dump(config, allow_unicode=True, default_flow_style=False))
+          print(f'已配置 {len(config[\"sources\"])} 个订阅源')
+          "
+
+      - name: Run filter
+        env:
+          MODE: ${{ github.event.inputs.mode || 'precise' }}
+        run: |
+          ARGS=""
+          if [ "$MODE" != "fast" ]; then
+            ARGS="--test"
+          fi
+          python3 main.py $ARGS
+
+      - name: Show report
+        run: cat output/filter_report.md
+
+      - name: Commit and push results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add output/
+          if git diff --cached --quiet; then
+            echo "没有变更，跳过提交"
+          else
+            TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+            NODE_COUNT=$(grep -c "^  - " output/filtered_proxies.yaml 2>/dev/null || echo "0")
+            git commit -m "chore: 更新筛选节点 [${TIMESTAMP}] (${NODE_COUNT} nodes)"
+            git push
+          fi
