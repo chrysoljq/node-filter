@@ -162,6 +162,9 @@ jobs:
                       else:
                           err = result.get('error', '未知错误')
                           print(f'推送失败: {err}')
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode()
+                  print(f'请求异常 ({path}): {e} - 响应内容: {body}')
               except Exception as e:
                   print(f'请求异常 ({path}): {e}')
 
