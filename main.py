@@ -200,6 +200,34 @@ def main():
         output_dir / output_config.get("report_file", "filter_report.md"),
     )
 
+    # ── 远程推送 ──
+    push_config = config.get("remote_push", {})
+    if push_config.get("enable", False):
+        base_url = push_config.get("url", "").rstrip("/")
+        token = push_config.get("token")
+        if base_url:
+            from filter.output import push_to_worker
+            # 1. 推送配置文件
+            if "/api/" not in base_url: # 自动适配旧版配置
+                yaml_url = f"{base_url}/api/yaml"
+                report_url = f"{base_url}/api/report"
+            else:
+                yaml_url = base_url
+                report_url = base_url.replace("/yaml", "/report")
+
+            full_config_path = output_dir / output_config.get("config_file", "filtered_config.yaml")
+            if full_config_path.exists():
+                content = full_config_path.read_text(encoding="utf-8")
+                push_to_worker(content, yaml_url, token, data_type="yaml")
+
+            # 2. 推送报告
+            report_path = output_dir / output_config.get("report_file", "filter_report.md")
+            if report_path.exists():
+                report_content = report_path.read_text(encoding="utf-8")
+                push_to_worker(report_content, report_url, token, data_type="report")
+        else:
+            logger.warning("启用了远程推送但未指定 url")
+
     logger.info("=== 完成 ===")
 
 

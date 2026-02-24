@@ -4,12 +4,39 @@
 """
 
 import logging
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+
+def push_to_worker(content: str, url: str, token: str = None, data_type: str = "yaml") -> bool:
+    """将配置内容推送到远程 Worker。
+
+    Args:
+        content: 要推送的内容
+        url: Worker 的 API 接口地址（如 .../api/yaml 或 .../api/report）
+        token: 鉴权 Token
+        data_type: 数据类型，'yaml' 或 'report'
+    """
+    try:
+        headers = {"Content-Type": "application/json"}
+        params = {}
+        if token:
+            params["token"] = token
+
+        payload = {data_type: content}
+        resp = requests.post(url, json=payload, params=params, headers=headers, timeout=30)
+        resp.raise_for_status()
+        logger.info("内容已成功推送到远程 Worker: %s (%s)", url, data_type)
+        return True
+    except Exception as e:
+        logger.error("推送到远程 Worker 失败 (%s): %s", data_type, e)
+        return False
+
 
 # 默认的代理组模板
 _DEFAULT_PROXY_GROUPS = [

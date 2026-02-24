@@ -47,6 +47,15 @@ output:
   mixed_port: 7890
   api_port: 9090
 
+# === 远程推送 ===
+remote_push:
+  enable: false
+  # Worker 基础地址，例如 "https://your-worker.workers.dev"
+  # 程序会自动拼接 /api/yaml 和 /api/report
+  url: ""
+  # 如果 Worker 设置了 SUB_TOKEN，请在此填写
+  token: ""
+
 # === 日志 ===
 logging:
   level: "INFO"

@@ -395,13 +395,30 @@ def _parse_tuic(link: str) -> dict | None:
 
 
 def _parse_yaml_proxies(text: str) -> list[dict]:
-    """从 YAML 文本中提取 proxies 列表。"""
+    """从 YAML 文本中提取 proxies 列表，或者解析 JSON 数组形式的分享链接。"""
     try:
-        data = yaml.safe_load(text)
+        import json
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = yaml.safe_load(text)
+
         if isinstance(data, dict):
             return data.get("proxies", [])
-    except yaml.YAMLError as e:
-        logger.warning("YAML 解析失败: %s", e)
+        if isinstance(data, list):
+            # 如果是字符串列表，尝试作为分享链接解析
+            if data and isinstance(data[0], str):
+                proxies = []
+                for item in data:
+                    p = _parse_single_link(item)
+                    if p:
+                        proxies.append(p)
+                return proxies
+            # 如果本身就是 dict 列表（已经是解析好的节点）
+            if data and isinstance(data[0], dict):
+                return data
+    except Exception as e:
+        logger.warning("解析 YAML/JSON 失败: %s", e)
     return []
 
 
