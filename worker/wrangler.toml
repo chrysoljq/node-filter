@@ -1,0 +1,12 @@
+name = "sub-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-05"
+
+# 通过 wrangler secret put 设置:
+#   AUTH_TOKEN  — 管理 API 令牌
+#   SUB_TOKEN   — 订阅获取令牌 (/sub?token=xxx)
+
+[[kv_namespaces]]
+binding = "KV"
+id = "YOUR_KV_NAMESPACE_ID"
+# preview_id = "YOUR_PREVIEW_KV_ID"

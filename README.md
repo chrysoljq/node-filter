@@ -45,15 +45,27 @@ python main.py -s "https://..." --test --no-detect
 python main.py -s "https://..." -v
 ```
 
-### GitHub Actions
+### GitHub Actions + Worker
 
-1. Fork 本仓库
-2. 在仓库 **Settings → Secrets and variables → Actions** 中添加：
-   - `SUBSCRIPTION_URLS`：订阅链接（多个用换行分隔）
+完整流程：
+
+```
+Worker /api/fetch ──→ Actions 筛选 ──→ Worker /api/config ──→ /sub?token=xxx 供客户端订阅
+```
+
+1. 部署 Worker（见 [`worker/README.md`](worker/README.md)），通过 API 添加订阅源
+2. 在仓库 **Settings → Secrets** 中设置：
+
+   | Secret | 说明 |
+   |--------|------|
+   | `WORKER_URL` | Worker 地址，如 `https://sub-worker.xxx.workers.dev` |
+   | `WORKER_AUTH_TOKEN` | Worker 管理令牌 |
+
 3. 启用 Actions，每天 UTC 02:00（北京时间 10:00）自动运行
-4. 也可以在 **Actions → Daily Node Filter → Run workflow** 手动触发
-
-筛选结果会自动提交到 `output/` 目录。
+4. 筛选后的配置会上传到 Worker，客户端订阅地址：
+   ```
+   https://your-worker.workers.dev/sub?token=your-sub-token
+   ```
 
 ## 输出文件
 
@@ -101,6 +113,10 @@ output:
 │   └── output.py            # 输出生成
 ├── data/
 │   └── datacenter_asn.yaml  # 机房 ASN 黑名单
+├── worker/                  # CF Workers 订阅管理 API
+│   ├── src/index.ts         # Worker 主体（路由/鉴权/CRUD/聚合）
+│   ├── wrangler.toml
+│   └── README.md
 ├── .github/workflows/
 │   └── filter.yaml          # GitHub Actions
 └── output/                  # 输出目录

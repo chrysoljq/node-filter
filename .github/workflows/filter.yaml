@@ -2,25 +2,25 @@ name: Daily Node Filter
 
 on:
   schedule:
-    # 每天 UTC 02:00（北京时间 10:00）运行
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
-      subscription_urls:
-        description: '订阅链接（多个用换行分隔）'
-        required: false
-        type: string
       mode:
         description: '检测模式'
         required: false
         type: choice
         default: 'precise'
         options:
-          - precise   # 精确模式：mihomo 出口 IP 检测
-          - fast       # 快速模式：入口 IP 检测
+          - precise
+          - fast
 
-permissions:
-  contents: write
+env:
+  PYTHON_VERSION: '3.12'
+
+# Secrets 需要设置:
+#   WORKER_URL       — Worker 地址 (https://sub-worker.xxx.workers.dev)
+#   WORKER_AUTH_TOKEN — 管理 API 令牌
+#   WORKER_SUB_TOKEN — 订阅获取令牌 (可选，仅备用直接拉取时用)
 
 jobs:
   filter:
@@ -34,13 +34,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
         run: pip install -q -r requirements.txt
 
       - name: Download latest mihomo
-        # 定时触发默认精确模式，手动触发看 mode 选择
         if: ${{ github.event_name == 'schedule' || github.event.inputs.mode != 'fast' }}
         run: |
           MIHOMO_VERSION=$(curl -sL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -51,33 +50,40 @@ jobs:
           sudo mv mihomo /usr/local/bin/mihomo
           mihomo -v
 
-      - name: Prepare config
+      - name: Fetch subscriptions from Worker
         env:
-          SUBSCRIPTION_URLS: ${{ secrets.SUBSCRIPTION_URLS }}
-          INPUT_URLS: ${{ github.event.inputs.subscription_urls }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
         run: |
-          URLS="${INPUT_URLS:-$SUBSCRIPTION_URLS}"
+          mkdir -p /tmp/subs
 
-          if [ -z "$URLS" ]; then
-            echo "::error::未设置订阅链接。请在 Settings → Secrets 中添加 SUBSCRIPTION_URLS。"
+          echo "从 Worker /api/fetch 获取订阅内容..."
+          RESP=$(curl -sf "${WORKER_URL}/api/fetch?token=${WORKER_AUTH_TOKEN}")
+          if [ $? -ne 0 ]; then
+            echo "::error::Worker API 请求失败"
             exit 1
           fi
 
-          python3 -c "
-          import yaml
-          from pathlib import Path
-
-          urls = '''${URLS}'''.strip().splitlines()
-          config = yaml.safe_load(Path('config.yaml').read_text())
-
-          config['sources'] = []
-          for url in urls:
-              url = url.strip()
-              if url:
-                  config['sources'].append({'type': 'subscription', 'url': url})
-
-          Path('config.yaml').write_text(yaml.dump(config, allow_unicode=True, default_flow_style=False))
-          print(f'已配置 {len(config[\"sources\"])} 个订阅源')
+          echo "$RESP" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          if not data.get('ok'):
+              print('::error::Worker 返回错误')
+              sys.exit(1)
+          contents = data.get('contents', [])
+          count = 0
+          for i, c in enumerate(contents):
+              if c.strip():
+                  with open(f'/tmp/subs/sub_{i}.yaml', 'w') as f:
+                      f.write(c)
+                  count += 1
+          if data.get('errors'):
+              for e in data['errors']:
+                  print(f'::warning::{e}')
+          print(f'获取到 {count} 个有效订阅')
+          if count == 0:
+              print('::error::没有有效订阅内容')
+              sys.exit(1)
           "
 
       - name: Run filter
@@ -85,25 +91,35 @@ jobs:
           MODE: ${{ github.event.inputs.mode || 'precise' }}
         run: |
           ARGS=""
+          for f in /tmp/subs/sub_*.yaml; do
+            [ -f "$f" ] && ARGS="$ARGS -f $f"
+          done
           if [ "$MODE" != "fast" ]; then
-            ARGS="--test"
+            ARGS="$ARGS --test"
           fi
           python3 main.py $ARGS
 
       - name: Show report
         run: cat output/filter_report.md
 
-      - name: Commit and push results
+      - name: Upload config to Worker
+        env:
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          WORKER_AUTH_TOKEN: ${{ secrets.WORKER_AUTH_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "上传筛选结果到 Worker..."
+          RESP=$(curl -sf -X PUT \
+            "${WORKER_URL}/api/config?token=${WORKER_AUTH_TOKEN}" \
+            -H "Content-Type: text/yaml" \
+            --data-binary @output/filtered_config.yaml)
 
-          git add output/
-          if git diff --cached --quiet; then
-            echo "没有变更，跳过提交"
-          else
-            TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
-            NODE_COUNT=$(grep -c "^  - " output/filtered_proxies.yaml 2>/dev/null || echo "0")
-            git commit -m "chore: 更新筛选节点 [${TIMESTAMP}] (${NODE_COUNT} nodes)"
-            git push
-          fi
+          echo "$RESP" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          if data.get('ok'):
+              info = data.get('data', {})
+              print(f'上传成功: {info.get(\"size\", 0)} bytes @ {info.get(\"updatedAt\", \"\")}')
+          else:
+              print(f'::error::上传失败: {data.get(\"error\", \"unknown\")}')
+              sys.exit(1)
+          "
