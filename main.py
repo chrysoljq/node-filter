@@ -207,14 +207,11 @@ def main():
         token = push_config.get("token")
         if base_url:
             from filter.output import push_to_worker
-            # 1. 推送配置文件
-            if "/api/" not in base_url: # 自动适配旧版配置
-                yaml_url = f"{base_url}/api/yaml"
-                report_url = f"{base_url}/api/report"
-            else:
-                yaml_url = base_url
-                report_url = base_url.replace("/yaml", "/report")
+            # 推送到专门的 filter 接口，避免覆盖 custom_yaml
+            yaml_url = f"{base_url}/api/filter/config"
+            report_url = f"{base_url}/api/filter/report"
 
+            # 1. 推送配置文件
             full_config_path = output_dir / output_config.get("config_file", "filtered_config.yaml")
             if full_config_path.exists():
                 content = full_config_path.read_text(encoding="utf-8")

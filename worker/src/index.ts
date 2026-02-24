@@ -1,6 +1,6 @@
 import { Env, Subscription, KV_SUBS_KEY, kvCacheKey } from "./types";
 
-const KV_CONFIG_KEY = "output:config";
+const KV_CONFIG_KEY = "filtered_config";
 
 // ─── helpers ───
 
@@ -131,7 +131,7 @@ async function handleFetchSubs(env: Env): Promise<Response> {
 
 // ─── 筛选结果上传/下载 ───
 
-const KV_REPORT_KEY = "output:report";
+const KV_REPORT_KEY = "filtered_report";
 
 /** PUT /api/config — Actions 上传筛选后的 YAML (兼容旧版) */
 async function uploadConfig(req: Request, env: Env): Promise<Response> {
@@ -216,8 +216,8 @@ export default {
       });
     }
 
-    // /sub 或 /custom — SUB_TOKEN 鉴权，返回筛选后的 YAML
-    if (path === "/sub" || path === "/custom") {
+    // /sub, /custom 或 /filter — SUB_TOKEN 鉴权
+    if (path === "/sub" || path === "/custom" || path === "/filter") {
       if (!checkToken(req, env.SUB_TOKEN)) {
         return json({ ok: false, error: "无效 token" }, 403);
       }
@@ -240,17 +240,17 @@ export default {
       // 拉取原始订阅（供 Actions 获取节点内容）
       if (path === "/api/fetch" && method === "GET") return handleFetchSubs(env);
 
-      // 上传筛选结果
-      if (path === "/api/config" && method === "PUT") return uploadConfig(req, env);
-      if (path === "/api/yaml" && method === "POST") return handleYamlPost(req, env);
-      if (path === "/api/report" && method === "POST") return handleReportPost(req, env);
+      // 上传筛选结果 (支持多种路径同步)
+      if ((path === "/api/config" || path === "/api/filter/config") && method === "PUT") return uploadConfig(req, env);
+      if ((path === "/api/yaml" || path === "/api/filter/config") && method === "POST") return handleYamlPost(req, env);
+      if ((path === "/api/report" || path === "/api/filter/report") && method === "POST") return handleReportPost(req, env);
       
       // 查看当前状态
-      if (path === "/api/config" && method === "GET") {
+      if ((path === "/api/config" || path === "/api/filter/config") && method === "GET") {
         const yaml = await env.KV.get(KV_CONFIG_KEY);
         return json({ ok: true, data: { hasConfig: !!yaml, size: yaml?.length ?? 0 } });
       }
-      if (path === "/api/report" && method === "GET") {
+      if ((path === "/api/report" || path === "/api/filter/report") && method === "GET") {
         const report = await env.KV.get(KV_REPORT_KEY);
         return json({ ok: true, data: { report: report || "" } });
       }
