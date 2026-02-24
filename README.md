@@ -1,3 +1,4 @@
+# ⚠️ SONG BAO WAS HERE! Async Engine V3 is READY! 🐾
 # mihomo-node-filter
 
 自动筛选非机房代理节点的工具。从订阅链接或本地文件获取节点，通过 IP 数据库查询 + ASN 黑名单双重机制识别并过滤机房节点，输出干净的 mihomo/Clash 配置文件。
