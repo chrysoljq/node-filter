@@ -44,15 +44,31 @@ def _clean_proxy(proxy: dict) -> dict:
 
 
 def _generate_config(proxies: list[dict], mixed_port: int, api_port: int) -> dict:
-    """生成包含所有节点的 mihomo 配置，每个节点一个 select 组便于切换。"""
-    clean = [_clean_proxy(p) for p in proxies]
+    """生成包含所有节点的 mihomo 配置，确保名称唯一。"""
+    clean = []
+    seen_names = {}
+    
+    for p in proxies:
+        cp = _clean_proxy(p)
+        name = cp.get("name", "unknown")
+        
+        # 处理重名
+        if name in seen_names:
+            seen_names[name] += 1
+            name = f"{name}_{seen_names[name]}"
+            cp["name"] = name
+        else:
+            seen_names[name] = 0
+            
+        clean.append(cp)
+
     names = [p["name"] for p in clean]
 
     return {
         "mixed-port": mixed_port,
         "external-controller": f"127.0.0.1:{api_port}",
         "mode": "rule",
-        "log-level": "silent",
+        "log-level": "info",
         "ipv6": False,
         "proxies": clean,
         "proxy-groups": [
@@ -172,7 +188,7 @@ class MihomoInstance:
         try:
             self.proc = subprocess.Popen(
                 [self.mihomo_bin, "-d", self.tmpdir],
-                stdout=subprocess.DEVNULL,
+                stdout=self.stderr_file,
                 stderr=self.stderr_file,
                 preexec_fn=os.setsid,
             )
@@ -182,9 +198,11 @@ class MihomoInstance:
             return False
 
         if not _wait_for_api(self.proc, self.api_port):
+            exit_code = self.proc.poll()
             self.stderr_file.close()
             err_msg = self.stderr_log.read_text(encoding="utf-8")
-            logger.error("mihomo 启动失败或超时。日志内容:\n%s", err_msg)
+            logger.error("mihomo 启动失败或超时 (ExitCode: %s)。日志内容:\n%s", 
+                         exit_code, err_msg)
             self.stop()
             return False
 
