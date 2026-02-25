@@ -66,18 +66,22 @@ def _generate_config(proxies: list[dict], mixed_port: int, api_port: int) -> dic
     }
 
 
-def _wait_for_api(api_port: int, timeout: float = 30.0) -> bool:
-    """等待 mihomo API 就绪。"""
+def _wait_for_api(proc, api_port: int, timeout: float = 60.0) -> bool:
+    """等待 mihomo API 就绪，并检查进程是否存活。"""
     url = f"http://127.0.0.1:{api_port}/version"
     deadline = time.time() + timeout
     while time.time() < deadline:
+        # 检查进程是否已退出
+        if proc.poll() is not None:
+            logger.error("mihomo 进程已意外退出")
+            return False
         try:
             resp = requests.get(url, timeout=1)
             if resp.status_code == 200:
                 return True
         except requests.RequestException:
             pass
-        time.sleep(0.3)
+        time.sleep(0.5)
     return False
 
 
@@ -162,11 +166,14 @@ class MihomoInstance:
             self.mixed_port, self.api_port, len(proxies),
         )
 
+        self.stderr_log = Path(self.tmpdir) / "mihomo_stderr.log"
+        self.stderr_file = open(self.stderr_log, "w")
+
         try:
             self.proc = subprocess.Popen(
                 [self.mihomo_bin, "-d", self.tmpdir],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=self.stderr_file,
                 preexec_fn=os.setsid,
             )
         except FileNotFoundError:
@@ -174,8 +181,10 @@ class MihomoInstance:
             self.cleanup()
             return False
 
-        if not _wait_for_api(self.api_port):
-            logger.error("mihomo API 启动超时")
+        if not _wait_for_api(self.proc, self.api_port):
+            self.stderr_file.close()
+            err_msg = self.stderr_log.read_text(encoding="utf-8")
+            logger.error("mihomo 启动失败或超时。日志内容:\n%s", err_msg)
             self.stop()
             return False
 
@@ -184,6 +193,8 @@ class MihomoInstance:
 
     def stop(self):
         """停止 mihomo 进程。"""
+        if hasattr(self, "stderr_file") and self.stderr_file and not self.stderr_file.closed:
+            self.stderr_file.close()
         if self.proc:
             try:
                 os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
