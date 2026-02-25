@@ -66,7 +66,7 @@ def _generate_config(proxies: list[dict], mixed_port: int, api_port: int) -> dic
     }
 
 
-def _wait_for_api(api_port: int, timeout: float = 8.0) -> bool:
+def _wait_for_api(api_port: int, timeout: float = 30.0) -> bool:
     """等待 mihomo API 就绪。"""
     url = f"http://127.0.0.1:{api_port}/version"
     deadline = time.time() + timeout

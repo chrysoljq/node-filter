@@ -59,10 +59,10 @@ jobs:
           mkdir -p /tmp/subs
 
           echo "从 Worker 获取订阅列表并直接拉取内容..."
-          # 获取列表
-          LIST_JSON=$(curl -sf "${WORKER_URL}/api/subs?token=${WORKER_AUTH_TOKEN}")
+          # 获取列表使用浏览器 UA 避免被 Cloudflare 拦截 (1010)
+          LIST_JSON=$(curl -sf -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "${WORKER_URL}/api/subs?token=${WORKER_AUTH_TOKEN}")
           if [ $? -ne 0 ]; then
-            echo "::error::获取订阅列表失败"
+            echo "::error::获取订阅列表失败，可能是被 Cloudflare 拦截"
             exit 1
           fi
 
@@ -96,7 +96,7 @@ jobs:
               print(f'正在下载: {name} ...')
               try:
                   req = urllib.request.Request(url, headers={'User-Agent': ua})
-                  with urllib.request.urlopen(req, context=ctx, timeout=15) as response:
+                  with urllib.request.urlopen(req, context=ctx, timeout=20) as response:
                       content = response.read().decode('utf-8', errors='ignore')
                       if content.strip():
                           with open(f'/tmp/subs/sub_{i}.yaml', 'w') as f:
@@ -155,7 +155,7 @@ jobs:
                       data=payload, 
                       headers={
                           'Content-Type': 'application/json',
-                          'User-Agent': os.environ.get('GLOBAL_UA', 'clash-verge/2.4.5')
+                          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                       }, 
                       method='POST'
                   )
