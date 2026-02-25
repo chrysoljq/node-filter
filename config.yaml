@@ -1,7 +1,7 @@
 # mihomo-node-filter 配置文件
 
 # === 全局设置 ===
-global_ua: "clash-verge/2.4.5"
+global_ua: "clash-verge/2.4.114514"
 
 # === 节点来源 ===
 sources:
@@ -25,7 +25,7 @@ filter:
   connectivity:
     mihomo_bin: "mihomo"
     test_url: "https://www.gstatic.com/generate_204"
-    timeout: 10
+    timeout: 5
 
   # 名称关键词黑名单（包含这些词的节点直接过滤）
   name_blacklist:
