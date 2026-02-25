@@ -17,10 +17,10 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def fetch_subscription(url: str, timeout: int = 30) -> str:
+def fetch_subscription(url: str, timeout: int = 30, user_agent: str = None) -> str:
     """从订阅 URL 获取原始内容。"""
     headers = {
-        "User-Agent": "clash.meta/mihomo",
+        "User-Agent": user_agent or "clash.meta/mihomo",
         "Accept": "*/*",
     }
     resp = requests.get(url, headers=headers, timeout=timeout)
@@ -457,7 +457,7 @@ def parse_content(text: str) -> list[dict]:
     return []
 
 
-def load_sources(sources: list[dict]) -> list[dict]:
+def load_sources(sources: list[dict], user_agent: str = None) -> list[dict]:
     """从多个来源加载并合并节点列表。
 
     sources 格式：
@@ -475,7 +475,7 @@ def load_sources(sources: list[dict]) -> list[dict]:
             if src_type == "subscription":
                 url = src["url"]
                 logger.info("正在获取订阅: %s", url[:60])
-                content = fetch_subscription(url, timeout=src.get("timeout", 30))
+                content = fetch_subscription(url, timeout=src.get("timeout", 30), user_agent=user_agent)
                 proxies = parse_content(content)
                 logger.info("从订阅获取到 %d 个节点", len(proxies))
             elif src_type == "file":

@@ -1,5 +1,8 @@
 # mihomo-node-filter 配置文件
 
+# === 全局设置 ===
+global_ua: "clash-verge/2.4.5"
+
 # === 节点来源 ===
 sources:
   # 订阅链接（取消注释并替换为你的链接）

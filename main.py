@@ -113,7 +113,7 @@ def main():
 
     # ── 步骤 1: 加载节点 ──
     logger.info("[1] 加载节点...")
-    proxies = load_sources(sources)
+    proxies = load_sources(sources, user_agent=config.get("global_ua"))
     if not proxies:
         logger.error("未获取到任何节点")
         sys.exit(1)

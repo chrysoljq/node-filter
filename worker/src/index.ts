@@ -88,18 +88,18 @@ async function refreshCache(env: Env): Promise<Response> {
 
 const CACHE_TTL = 300;
 
-async function fetchOne(sub: Subscription, kv: KVNamespace): Promise<string> {
+async function fetchOne(sub: Subscription, env: Env): Promise<string> {
   const ck = kvCacheKey(sub.id);
-  const cached = await kv.get(ck);
+  const cached = await env.KV.get(ck);
   if (cached) return cached;
 
   const resp = await fetch(sub.url, {
-    headers: { "User-Agent": "clash.meta/mihomo" },
+    headers: { "User-Agent": env.GLOBAL_UA || "clash.meta/mihomo" },
     signal: AbortSignal.timeout(15_000),
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const text = await resp.text();
-  await kv.put(ck, text, { expirationTtl: CACHE_TTL });
+  await env.KV.put(ck, text, { expirationTtl: CACHE_TTL });
   return text;
 }
 
@@ -110,7 +110,7 @@ async function handleFetchSubs(env: Env): Promise<Response> {
   }
 
   const results = await Promise.allSettled(
-    subs.map((s) => fetchOne(s, env.KV))
+    subs.map((s) => fetchOne(s, env))
   );
 
   const contents: string[] = [];
