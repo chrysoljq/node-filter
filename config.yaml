@@ -52,12 +52,12 @@ filter:
 
 # === AI 解锁检测 ===
 unlock:
-  enable: false
+  enable: true
   # 要检测的 AI 服务（留空 = 全部检测）
   # 支持的服务: ChatGPT, Claude, Gemini, Copilot, YouTube
   services: []
   # 单个服务测试超时（秒）
-  timeout: 8
+  timeout: 10
 
 # === 输出设置 ===
 output:
