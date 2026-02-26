@@ -16,6 +16,7 @@
   - 已知机房 ASN 黑名单（AWS、GCP、Azure、Vultr、DigitalOcean 等 60+ 条）
   - ISP/Org 名称关键词匹配
 - **单实例架构**：精确模式只启动一个 mihomo 进程，通过 RESTful API 切换节点，高效且稳定
+- **AI 解锁检测**：联动精确模式并发检测节点对 ChatGPT, Claude, Gemini, Copilot, YouTube 的解锁情况
 - **自动去重**：按 (type, server, port) 去重
 - **名称过滤**：黑名单/白名单关键词过滤
 - **GitHub Actions**：定时运行，自动提交更新
@@ -35,10 +36,15 @@ python main.py -s "https://your-subscription-url.com/sub"
 python main.py -s "https://..." --test
 python main.py -s "https://..." --test --mihomo-bin /path/to/mihomo
 
+# 🤖 AI 解锁检测（自动开启精确模式）
+python main.py -s "https://..." --unlock
+# 仅保留解锁任意 AI 服务的节点
+python main.py -s "https://..." --unlock-only
+
 # 本地文件
 python main.py -f ./my_proxies.yaml
 
-# 跳过机房检测（仅名称过滤+连通性测试）
+# 跳过机房检测（仅名称过滤+连通性/解锁测试）
 python main.py -s "https://..." --test --no-detect
 
 # 详细日志
@@ -73,7 +79,9 @@ Worker /api/fetch ──→ Actions 筛选 ──→ Worker /api/config ──�
 |------|------|
 | `output/filtered_config.yaml` | 完整的 mihomo 配置（可直接使用） |
 | `output/filtered_proxies.yaml` | 仅节点列表（方便嵌入已有配置） |
-| `output/filter_report.md` | 筛选报告（住宅/机房/未知分类详情） |
+| `output/filtered_gemini_config.yaml` | 仅解锁 Gemini 的配置 (需 `--unlock`) |
+| `output/filtered_all_unlock_config.yaml`| 解锁全部配置中 AI 服务的配置 (需 `--unlock`) |
+| `output/filter_report.md` | 筛选报告（附带 AI 解锁详细状态） |
 
 ## 配置文件
 
@@ -110,6 +118,7 @@ output:
 │   ├── source.py            # 节点获取与解析
 │   ├── detector.py          # 机房检测（入口IP/出口IP双模式）
 │   ├── tester.py            # mihomo 单实例连通性测试
+│   ├── unlock.py            # AI 服务解锁并发检测
 │   └── output.py            # 输出生成
 ├── data/
 │   └── datacenter_asn.yaml  # 机房 ASN 黑名单

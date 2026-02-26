@@ -11,12 +11,16 @@
 ```
 ┌─────────────┐     GET /api/fetch      ┌──────────────┐
 │   Worker    │ ◄─────────────────────── │ GitHub Actions│
-│  (KV 存储)  │                          │  (Python 筛选) │
+│  (KV 存储)  │                          │  (Python 筛选)  │
 │             │ ───────────────────────► │              │
-│             │     PUT /api/config      └──────────────┘
-│             │       (上传 YAML)
+│             │   PUT /api/config        └──────────────┘
+│             │     (上传 YAML)
+│             │   POST /api/filter/config_gemini
+│             │   POST /api/filter/config_all_unlock
 │             │
 │             │     GET /sub?token=xxx
+│             │     GET /sub/gemini?token=xxx
+│             │     GET /sub/all_unlock?token=xxx
 │             │ ◄─────────────────────── mihomo 客户端
 │             │       (返回 YAML)
 └─────────────┘
@@ -31,9 +35,13 @@
 | `/api/subs/:id` | DELETE | AUTH_TOKEN | 删除订阅源（id 或 name） |
 | `/api/subs/refresh` | POST | AUTH_TOKEN | 清除订阅缓存 |
 | `/api/fetch` | GET | AUTH_TOKEN | 拉取所有订阅原始内容（供 Actions） |
-| `/api/config` | PUT | AUTH_TOKEN | 上传筛选后的 YAML（Actions 调用） |
+| `/api/config` | PUT | AUTH_TOKEN | 上传筛选后常规 YAML（Actions 调用） |
+| `/api/filter/config_gemini` | POST | AUTH_TOKEN | 上传仅解锁 Gemini 的配置 |
+| `/api/filter/config_all_unlock` | POST | AUTH_TOKEN | 上传全部解锁的配置 |
 | `/api/config` | GET | AUTH_TOKEN | 查看当前配置状态 |
-| `/sub?token=xxx` | GET | SUB_TOKEN | **客户端订阅地址**，返回 YAML |
+| `/sub?token=xxx` | GET | SUB_TOKEN | **常规节点订阅地址** |
+| `/sub/gemini?token=xxx` | GET | SUB_TOKEN | **仅 Gemini 节点订阅地址** |
+| `/sub/all_unlock?token=xxx` | GET | SUB_TOKEN | **全部解锁节点订阅地址** |
 
 ### 示例
 
@@ -58,7 +66,9 @@ curl "$W/api/subs?token=$TOKEN"
 curl -X DELETE "$W/api/subs/jichang1?token=$TOKEN"
 
 # 客户端订阅地址（填入 mihomo/Clash）
-# https://sub-worker.xxx.workers.dev/sub?token=your-sub-token
+# 默认筛选: https://sub-worker.xxx.workers.dev/sub?token=your-sub-token
+# 仅 Gemini: https://sub-worker.xxx.workers.dev/sub/gemini?token=your-sub-token
+# 全解锁:   https://sub-worker.xxx.workers.dev/sub/all_unlock?token=your-sub-token
 ```
 
 ## 部署
