@@ -175,9 +175,11 @@ def _test_single_proxy(
     timeout: int,
     index: int,
     total: int,
+    unlock_services: list[str] | None = None,
+    unlock_timeout: int = 8,
 ) -> dict:
     """测试单个节点（在线程池中并发执行）。"""
-    result = {"name": name, "alive": False, "delay": 0, "exit_ip": None}
+    result = {"name": name, "alive": False, "delay": 0, "exit_ip": None, "unlock": {}}
 
     alive, delay = _test_delay(socks_port, test_url, timeout)
     result["alive"] = alive
@@ -191,10 +193,22 @@ def _test_single_proxy(
     exit_ip = _get_exit_ip(socks_port, timeout=timeout)
     result["exit_ip"] = exit_ip
 
-    logger.info(
-        "  [%d/%d] ✓ %s - %dms - 出口IP: %s",
-        index, total, name, delay, exit_ip or "未知",
-    )
+    if unlock_services is not None:
+        from filter.unlock import check_unlock
+        unlock_res = check_unlock(socks_port, unlock_services, unlock_timeout)
+        result["unlock"] = unlock_res
+        
+        unlocked_count = sum(1 for v in unlock_res.values() if v)
+        logger.info(
+            "  [%d/%d] ✓ %s - %dms - 出口IP: %s - AI解锁: %d/%d",
+            index, total, name, delay, exit_ip or "未知",
+            unlocked_count, len(unlock_res),
+        )
+    else:
+        logger.info(
+            "  [%d/%d] ✓ %s - %dms - 出口IP: %s",
+            index, total, name, delay, exit_ip or "未知",
+        )
     return result
 
 
@@ -290,6 +304,8 @@ def test_proxies(
     test_url: str = "https://www.gstatic.com/generate_204",
     timeout: int = 10,
     concurrency: int = 20,
+    unlock_services: list[str] | None = None,
+    unlock_timeout: int = 8,
 ) -> list[dict]:
     """批量并发测试节点：连通性 + 获取出口 IP。
 
@@ -369,6 +385,7 @@ def test_proxies(
                         _test_single_proxy,
                         rname, port, test_url, timeout,
                         global_idx, total,
+                        unlock_services, unlock_timeout,
                     )
                     futures[future] = rname
 

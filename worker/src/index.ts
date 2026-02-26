@@ -1,6 +1,8 @@
 import { Env, Subscription, KV_SUBS_KEY, kvCacheKey } from "./types";
 
 const KV_CONFIG_KEY = "filtered_config";
+const KV_GEMINI_CONFIG_KEY = "filtered_gemini_config";
+const KV_ALL_UNLOCK_CONFIG_KEY = "filtered_all_unlock_config";
 
 // ─── helpers ───
 
@@ -156,6 +158,30 @@ async function handleYamlPost(req: Request, env: Env): Promise<Response> {
   }
 }
 
+/** POST /api/filter/config_gemini — 接收 Gemini 专用配置 */
+async function handleGeminiYamlPost(req: Request, env: Env): Promise<Response> {
+  try {
+    const { yaml } = await req.json() as any;
+    if (!yaml) return json({ ok: false, error: "缺少 yaml 内容" }, 400);
+    await env.KV.put(KV_GEMINI_CONFIG_KEY, yaml);
+    return json({ ok: true });
+  } catch (e: any) {
+    return json({ ok: false, error: e.message }, 500);
+  }
+}
+
+/** POST /api/filter/config_all_unlock — 接收全部解锁专用配置 */
+async function handleAllUnlockYamlPost(req: Request, env: Env): Promise<Response> {
+  try {
+    const { yaml } = await req.json() as any;
+    if (!yaml) return json({ ok: false, error: "缺少 yaml 内容" }, 400);
+    await env.KV.put(KV_ALL_UNLOCK_CONFIG_KEY, yaml);
+    return json({ ok: true });
+  } catch (e: any) {
+    return json({ ok: false, error: e.message }, 500);
+  }
+}
+
 /** POST /api/report — 同步 subscription 接口 */
 async function handleReportPost(req: Request, env: Env): Promise<Response> {
   try {
@@ -168,10 +194,14 @@ async function handleReportPost(req: Request, env: Env): Promise<Response> {
 }
 
 /** GET /sub?token=xxx — 客户端订阅，直接返回 YAML */
-async function handleSub(env: Env): Promise<Response> {
-  const yaml = await env.KV.get(KV_CONFIG_KEY);
+async function handleSub(env: Env, subType: "default" | "gemini" | "all_unlock" = "default"): Promise<Response> {
+  let key = KV_CONFIG_KEY;
+  if (subType === "gemini") key = KV_GEMINI_CONFIG_KEY;
+  if (subType === "all_unlock") key = KV_ALL_UNLOCK_CONFIG_KEY;
+
+  const yaml = await env.KV.get(key);
   if (!yaml) {
-    return new Response("# 暂无配置，请等待 Actions 筛选完成\nproxies: []\n", {
+    return new Response(`# 暂无配置，请等待 Actions 筛选完成\nproxies: []\n`, {
       status: 200,
       headers: yamlHeaders(),
     });
@@ -216,12 +246,15 @@ export default {
       });
     }
 
-    // /sub, /custom 或 /filter — SUB_TOKEN 鉴权
-    if (path === "/sub" || path === "/custom" || path === "/filter") {
+    // /sub, /sub/gemini, /sub/all_unlock, /custom 或 /filter — SUB_TOKEN 鉴权
+    if (path === "/sub" || path === "/sub/gemini" || path === "/sub/all_unlock" || path === "/custom" || path === "/filter") {
       if (!checkToken(req, env.SUB_TOKEN)) {
         return json({ ok: false, error: "无效 token" }, 403);
       }
-      return handleSub(env);
+      let subType: "default" | "gemini" | "all_unlock" = "default";
+      if (path === "/sub/gemini") subType = "gemini";
+      if (path === "/sub/all_unlock") subType = "all_unlock";
+      return handleSub(env, subType);
     }
 
     // /api/* — AUTH_TOKEN 鉴权
@@ -243,8 +276,10 @@ export default {
       // 上传筛选结果 (支持多种路径同步)
       if ((path === "/api/config" || path === "/api/filter/config") && method === "PUT") return uploadConfig(req, env);
       if ((path === "/api/yaml" || path === "/api/filter/config") && method === "POST") return handleYamlPost(req, env);
+      if (path === "/api/filter/config_gemini" && method === "POST") return handleGeminiYamlPost(req, env);
+      if (path === "/api/filter/config_all_unlock" && method === "POST") return handleAllUnlockYamlPost(req, env);
       if ((path === "/api/report" || path === "/api/filter/report") && method === "POST") return handleReportPost(req, env);
-      
+
       // 查看当前状态
       if ((path === "/api/config" || path === "/api/filter/config") && method === "GET") {
         const yaml = await env.KV.get(KV_CONFIG_KEY);

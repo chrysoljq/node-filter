@@ -84,6 +84,10 @@ def main():
                         help="精确模式：启动 mihomo 获取出口 IP 检测")
     parser.add_argument("--no-detect", action="store_true",
                         help="跳过机房检测（仅名称过滤+连通性测试）")
+    parser.add_argument("--unlock", action="store_true",
+                        help="启用 AI 解锁检测（将自动启用精确模式）")
+    parser.add_argument("--unlock-only", action="store_true",
+                        help="仅保留至少解锁一项 AI 服务的节点")
     parser.add_argument("--mihomo-bin", default=None,
                         help="mihomo 二进制路径")
     parser.add_argument("-v", "--verbose", action="store_true",
@@ -111,6 +115,7 @@ def main():
     filter_config = config.get("filter", {})
     conn_config = filter_config.get("connectivity", {})
     abuseipdb_key = filter_config.get("abuseipdb", {}).get("api_key", "")
+    unlock_config = config.get("unlock", {})
 
     # ── 步骤 1: 加载节点 ──
     logger.info("[1] 加载节点...")
@@ -128,7 +133,8 @@ def main():
     )
 
     # ── 确定工作模式 ──
-    use_mihomo = args.test or filter_config.get("enable_connectivity_test", False)
+    enable_unlock = args.unlock or unlock_config.get("enable", False)
+    use_mihomo = args.test or enable_unlock or filter_config.get("enable_connectivity_test", False)
 
     residential = proxies
     datacenter = list(name_removed)
@@ -142,14 +148,24 @@ def main():
         timeout = conn_config.get("timeout", 10)
         concurrency = conn_config.get("concurrency", 20)
 
-        # 步骤 3: 连通性测试 + 获取出口 IP
-        logger.info("[3] 启动 mihomo 测试连通性 + 获取出口 IP...")
+        # 步骤 3: 连通性测试 + 获取出口 IP + AI 解锁
+        log_msg = "[3] 启动 mihomo 测试连通性 + 获取出口 IP"
+        unlock_services = None
+        unlock_timeout = 8
+        if enable_unlock:
+            unlock_services = unlock_config.get("services", [])
+            unlock_timeout = unlock_config.get("timeout", 8)
+            log_msg += " + AI 解锁检测"
+        logger.info(log_msg + "...")
+        
         test_results = test_proxies(
             proxies,
             mihomo_bin=mihomo_bin,
             test_url=test_url,
             timeout=timeout,
             concurrency=concurrency,
+            unlock_services=unlock_services if enable_unlock else None,
+            unlock_timeout=unlock_timeout,
         )
 
         # 过滤不可用节点
@@ -168,6 +184,11 @@ def main():
         else:
             logger.info("[4] 跳过机房检测")
             residential = proxies
+
+        # 注入 AI 解锁测试结果到节点字典中
+        result_map = {r["name"]: r for r in test_results}
+        for p in residential:
+            p["_unlock"] = result_map.get(p.get("name", ""), {}).get("unlock", {})
     else:
         # ═══ 快速模式：入口 IP 检测 ═══
         if not args.no_detect:
@@ -179,6 +200,19 @@ def main():
 
         logger.info("[4] 跳过（未启用 mihomo 测试，使用 --test 启用）")
 
+    # ── 过滤仅解锁 AI 的节点（若配置） ──
+    if args.unlock_only and enable_unlock:
+        logger.info("[5] 过滤仅保留 AI 解锁节点...")
+        keep_res = []
+        for p in residential:
+            unlock_dict = p.get("_unlock", {})
+            if any(unlock_dict.values()):
+                keep_res.append(p)
+            else:
+                p["_filter_reason"] = "未解锁任何 AI 服务"
+                datacenter.append(p)
+        residential = keep_res
+
     # ── 输出 ──
     final_proxies = residential + unknown
     output_config = config.get("output", {})
@@ -188,6 +222,7 @@ def main():
     logger.info("保留: %d | 过滤: %d | 未知: %d",
                 len(residential), len(datacenter), len(unknown))
 
+    # 生成全量配置
     generate_mihomo_config(
         final_proxies,
         output_dir / output_config.get("config_file", "filtered_config.yaml"),
@@ -198,6 +233,43 @@ def main():
         final_proxies,
         output_dir / output_config.get("proxies_file", "filtered_proxies.yaml"),
     )
+
+    # 生成特供 Gemini 的配置
+    if enable_unlock:
+        gemini_proxies = [
+            p for p in final_proxies
+            if p.get("_unlock", {}).get("Gemini")
+        ]
+        logger.info("Gemini 解锁节点: %d", len(gemini_proxies))
+        generate_mihomo_config(
+            gemini_proxies,
+            output_dir / "filtered_gemini_config.yaml",
+            mixed_port=output_config.get("mixed_port", 7890),
+            api_port=output_config.get("api_port", 9090),
+        )
+        generate_proxy_list(
+            gemini_proxies,
+            output_dir / "filtered_gemini_proxies.yaml",
+        )
+
+    # 生成特供 全部解锁 的配置
+    if enable_unlock:
+        all_unlock_proxies = [
+            p for p in final_proxies
+            if p.get("_unlock") and all(p["_unlock"].values())
+        ]
+        logger.info("全部解锁节点: %d", len(all_unlock_proxies))
+        generate_mihomo_config(
+            all_unlock_proxies,
+            output_dir / "filtered_all_unlock_config.yaml",
+            mixed_port=output_config.get("mixed_port", 7890),
+            api_port=output_config.get("api_port", 9090),
+        )
+        generate_proxy_list(
+            all_unlock_proxies,
+            output_dir / "filtered_all_unlock_proxies.yaml",
+        )
+
     generate_report(
         residential, datacenter, unknown, test_results,
         output_dir / output_config.get("report_file", "filter_report.md"),
@@ -219,6 +291,22 @@ def main():
             if full_config_path.exists():
                 content = full_config_path.read_text(encoding="utf-8")
                 push_to_worker(content, yaml_url, token, data_type="yaml")
+
+            # 1.1 推送 Gemini 配置文件
+            if enable_unlock:
+                gemini_url = f"{base_url}/api/filter/config_gemini"
+                gemini_config_path = output_dir / "filtered_gemini_config.yaml"
+                if gemini_config_path.exists():
+                    g_content = gemini_config_path.read_text(encoding="utf-8")
+                    push_to_worker(g_content, gemini_url, token, data_type="yaml")
+
+            # 1.2 推送全部解锁配置文件
+            if enable_unlock:
+                all_unlock_url = f"{base_url}/api/filter/config_all_unlock"
+                all_unlock_config_path = output_dir / "filtered_all_unlock_config.yaml"
+                if all_unlock_config_path.exists():
+                    au_content = all_unlock_config_path.read_text(encoding="utf-8")
+                    push_to_worker(au_content, all_unlock_url, token, data_type="yaml")
 
             # 2. 推送报告
             report_path = output_dir / output_config.get("report_file", "filter_report.md")

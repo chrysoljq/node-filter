@@ -228,7 +228,13 @@ def generate_report(
             cc = p.get("_exit_country", p.get("_entry_country", ""))
             delay = p.get("_delay", "")
             delay_str = f" | {delay}ms" if delay else ""
-            lines.append(f"- {name} | {ip} | {org} | {cc}{delay_str}")
+            
+            unlock_str = ""
+            if "_unlock" in p:
+                unlocked_svcs = [k for k, v in p["_unlock"].items() if v]
+                unlock_str = f" | 解锁: {', '.join(unlocked_svcs) if unlocked_svcs else '无'}"
+                
+            lines.append(f"- {name} | {ip} | {org} | {cc}{delay_str}{unlock_str}")
         lines.append("")
 
     if datacenter:
@@ -257,6 +263,16 @@ def generate_report(
             lines.append("### 失败节点")
             for r in dead:
                 lines.append(f"- {r['name']} | {r.get('error', 'unknown')}")
+                
+    if test_results and any("unlock" in r for r in test_results):
+        lines.append("")
+        lines.append("## AI 解锁检测")
+        for r in [r for r in test_results if r["alive"] and "unlock" in r]:
+            unlock_dict = r["unlock"]
+            if not unlock_dict:
+                continue
+            status_list = [f"{k}: {'✓' if v else '✗'}" for k, v in unlock_dict.items()]
+            lines.append(f"- {r['name']} | " + " | ".join(status_list))
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
     logger.info("报告已写入: %s", output_path)
