@@ -134,7 +134,7 @@ jobs:
             [ -f "$f" ] && ARGS="$ARGS -f $f"
           done
           if [ "$MODE" != "fast" ]; then
-            ARGS="$ARGS --test"
+            ARGS="$ARGS --test --unlock"
           fi
           python3 main.py $ARGS
 
@@ -192,4 +192,8 @@ jobs:
           
           # 2. 上传报告
           push('output/filter_report.md', '/api/filter/report', 'report')
+
+          # 3. 上传 AI 特定解锁配置
+          push('output/filtered_gemini_config.yaml', '/api/filter/config_gemini', 'yaml')
+          push('output/filtered_all_unlock_config.yaml', '/api/filter/config_all_unlock', 'yaml')
           "
