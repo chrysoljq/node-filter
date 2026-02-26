@@ -110,6 +110,7 @@ def main():
 
     filter_config = config.get("filter", {})
     conn_config = filter_config.get("connectivity", {})
+    abuseipdb_key = filter_config.get("abuseipdb", {}).get("api_key", "")
 
     # ── 步骤 1: 加载节点 ──
     logger.info("[1] 加载节点...")
@@ -139,6 +140,7 @@ def main():
         mihomo_bin = args.mihomo_bin or conn_config.get("mihomo_bin", "mihomo")
         test_url = conn_config.get("test_url", "https://www.gstatic.com/generate_204")
         timeout = conn_config.get("timeout", 10)
+        concurrency = conn_config.get("concurrency", 20)
 
         # 步骤 3: 连通性测试 + 获取出口 IP
         logger.info("[3] 启动 mihomo 测试连通性 + 获取出口 IP...")
@@ -147,6 +149,7 @@ def main():
             mihomo_bin=mihomo_bin,
             test_url=test_url,
             timeout=timeout,
+            concurrency=concurrency,
         )
 
         # 过滤不可用节点
@@ -160,7 +163,7 @@ def main():
         # 步骤 4: 出口 IP 机房检测
         if not args.no_detect:
             logger.info("[4] 出口 IP 机房检测...")
-            residential, dc, unknown = detect_by_exit_ip(proxies, test_results)
+            residential, dc, unknown = detect_by_exit_ip(proxies, test_results, abuseipdb_key)
             datacenter.extend(dc)
         else:
             logger.info("[4] 跳过机房检测")
@@ -169,7 +172,7 @@ def main():
         # ═══ 快速模式：入口 IP 检测 ═══
         if not args.no_detect:
             logger.info("[3] 入口 IP 快速检测...")
-            residential, dc, unknown = detect_by_entry_ip(proxies)
+            residential, dc, unknown = detect_by_entry_ip(proxies, abuseipdb_key)
             datacenter.extend(dc)
         else:
             logger.info("[3] 跳过机房检测")

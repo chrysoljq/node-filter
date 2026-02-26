@@ -1,13 +1,12 @@
-"""节点测试模块（单实例架构）。
+"""节点测试模块（单实例 + 多 listener 并发架构）。
 
-启动一个 mihomo 实例加载所有节点，通过 RESTful API 切换节点，
-逐个测试连通性并获取出口 IP。
+启动一个 mihomo 实例，通过 listeners 为每个节点分配独立的入站端口，
+然后并发测试连通性并获取出口 IP。
 
 流程：
-  1. 生成包含所有节点的 mihomo 配置
-  2. 启动 mihomo 进程
-  3. 遍历节点：通过 API 切换 → 测延迟 → 获取出口 IP
-  4. 关闭 mihomo
+  1. 将节点分批（每批 = concurrency 个）
+  2. 每批：生成 mihomo 配置（listeners 绑定端口→节点）→ 启动 → 并发测试 → 停止
+  3. 汇总结果
 """
 
 import logging
@@ -18,6 +17,7 @@ import socket
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -26,16 +26,21 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def _find_free_port(start: int = 10000) -> int:
-    """找一个可用端口。"""
-    for port in range(start, start + 1000):
+def _find_free_ports(count: int, start: int = 20000) -> list[int]:
+    """找到 count 个连续可用端口。"""
+    ports = []
+    port = start
+    while len(ports) < count and port < 65535:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(("127.0.0.1", port))
-                return port
+                ports.append(port)
         except OSError:
-            continue
-    raise RuntimeError("找不到可用端口")
+            pass
+        port += 1
+    if len(ports) < count:
+        raise RuntimeError(f"只找到 {len(ports)}/{count} 个可用端口")
+    return ports
 
 
 def _clean_proxy(proxy: dict) -> dict:
@@ -43,34 +48,57 @@ def _clean_proxy(proxy: dict) -> dict:
     return {k: v for k, v in proxy.items() if not k.startswith("_")}
 
 
-def _generate_config(proxies: list[dict], mixed_port: int, api_port: int) -> dict:
-    """生成包含所有节点的 mihomo 配置，确保名称唯一。"""
+def _generate_config(
+    proxies: list[dict],
+    port_map: dict[str, int],
+    api_port: int,
+) -> dict:
+    """生成 mihomo 配置：每个节点通过 listener 绑定到独立端口。
+
+    Args:
+        proxies: 本批节点列表
+        port_map: {节点名: socks5 端口} 映射
+        api_port: RESTful API 端口
+    """
     clean = []
     seen_names = {}
-    
+
     for p in proxies:
         cp = _clean_proxy(p)
         name = cp.get("name", "unknown")
-        
-        # 处理重名
+
         if name in seen_names:
             seen_names[name] += 1
             name = f"{name}_{seen_names[name]}"
             cp["name"] = name
         else:
             seen_names[name] = 0
-            
+
         clean.append(cp)
 
     names = [p["name"] for p in clean]
 
+    # 构建 listeners：每个节点一个 socks5 入站
+    listeners = []
+    for cp in clean:
+        name = cp["name"]
+        port = port_map.get(name)
+        if port:
+            listeners.append({
+                "name": f"socks-{name}",
+                "type": "socks",
+                "port": port,
+                "proxy": name,
+            })
+
     return {
-        "mixed-port": mixed_port,
+        "mixed-port": 0,
         "external-controller": f"127.0.0.1:{api_port}",
         "mode": "rule",
-        "log-level": "info",
+        "log-level": "warning",
         "ipv6": False,
         "proxies": clean,
+        "listeners": listeners,
         "proxy-groups": [
             {
                 "name": "GLOBAL",
@@ -83,11 +111,10 @@ def _generate_config(proxies: list[dict], mixed_port: int, api_port: int) -> dic
 
 
 def _wait_for_api(proc, api_port: int, timeout: float = 60.0) -> bool:
-    """等待 mihomo API 就绪，并检查进程是否存活。"""
+    """等待 mihomo API 就绪。"""
     url = f"http://127.0.0.1:{api_port}/version"
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # 检查进程是否已退出
         if proc.poll() is not None:
             logger.error("mihomo 进程已意外退出")
             return False
@@ -101,22 +128,11 @@ def _wait_for_api(proc, api_port: int, timeout: float = 60.0) -> bool:
     return False
 
 
-def _switch_proxy(api_port: int, proxy_name: str) -> bool:
-    """通过 API 切换 GLOBAL 组的活跃节点。"""
-    url = f"http://127.0.0.1:{api_port}/proxies/GLOBAL"
-    try:
-        resp = requests.put(url, json={"name": proxy_name}, timeout=3)
-        return resp.status_code == 204
-    except requests.RequestException as e:
-        logger.debug("切换节点失败 %s: %s", proxy_name, e)
-        return False
-
-
-def _test_delay(mixed_port: int, test_url: str, timeout: int) -> tuple[bool, int]:
-    """通过代理测试连通性，返回 (alive, delay_ms)。"""
+def _test_delay(socks_port: int, test_url: str, timeout: int) -> tuple[bool, int]:
+    """通过指定 socks5 端口测试连通性。"""
     proxies = {
-        "http": f"http://127.0.0.1:{mixed_port}",
-        "https": f"http://127.0.0.1:{mixed_port}",
+        "http": f"socks5h://127.0.0.1:{socks_port}",
+        "https": f"socks5h://127.0.0.1:{socks_port}",
     }
     start = time.time()
     try:
@@ -129,13 +145,12 @@ def _test_delay(mixed_port: int, test_url: str, timeout: int) -> tuple[bool, int
         return False, 0
 
 
-def _get_exit_ip(mixed_port: int, timeout: int = 8) -> str | None:
-    """通过代理获取出口 IP。"""
+def _get_exit_ip(socks_port: int, timeout: int = 8) -> str | None:
+    """通过指定 socks5 端口获取出口 IP。"""
     proxies = {
-        "http": f"http://127.0.0.1:{mixed_port}",
-        "https": f"http://127.0.0.1:{mixed_port}",
+        "http": f"socks5h://127.0.0.1:{socks_port}",
+        "https": f"socks5h://127.0.0.1:{socks_port}",
     }
-    # 多个 IP 查询源做 fallback
     ip_apis = [
         ("http://ip-api.com/json/?fields=query", lambda r: r.json().get("query")),
         ("https://api.ipify.org?format=json", lambda r: r.json().get("ip")),
@@ -153,6 +168,36 @@ def _get_exit_ip(mixed_port: int, timeout: int = 8) -> str | None:
     return None
 
 
+def _test_single_proxy(
+    name: str,
+    socks_port: int,
+    test_url: str,
+    timeout: int,
+    index: int,
+    total: int,
+) -> dict:
+    """测试单个节点（在线程池中并发执行）。"""
+    result = {"name": name, "alive": False, "delay": 0, "exit_ip": None}
+
+    alive, delay = _test_delay(socks_port, test_url, timeout)
+    result["alive"] = alive
+    result["delay"] = delay
+
+    if not alive:
+        result["error"] = "连接超时或失败"
+        logger.info("  [%d/%d] ✗ %s - 不可用", index, total, name)
+        return result
+
+    exit_ip = _get_exit_ip(socks_port, timeout=timeout)
+    result["exit_ip"] = exit_ip
+
+    logger.info(
+        "  [%d/%d] ✓ %s - %dms - 出口IP: %s",
+        index, total, name, delay, exit_ip or "未知",
+    )
+    return result
+
+
 class MihomoInstance:
     """管理一个 mihomo 进程的生命周期。"""
 
@@ -160,15 +205,13 @@ class MihomoInstance:
         self.mihomo_bin = mihomo_bin
         self.proc = None
         self.tmpdir = None
-        self.mixed_port = 0
         self.api_port = 0
 
-    def start(self, proxies: list[dict]) -> bool:
-        """启动 mihomo，加载所有节点。"""
-        self.mixed_port = _find_free_port(10000)
-        self.api_port = _find_free_port(self.mixed_port + 1)
+    def start(self, proxies: list[dict], port_map: dict[str, int]) -> bool:
+        """启动 mihomo，使用 listeners 为每个节点分配独立端口。"""
+        self.api_port = _find_free_ports(1, start=19000)[0]
 
-        config = _generate_config(proxies, self.mixed_port, self.api_port)
+        config = _generate_config(proxies, port_map, self.api_port)
 
         self.tmpdir = tempfile.mkdtemp(prefix="mihomo_filter_")
         config_path = Path(self.tmpdir) / "config.yaml"
@@ -178,8 +221,8 @@ class MihomoInstance:
         )
 
         logger.info(
-            "启动 mihomo (port=%d, api=%d, %d 个节点)...",
-            self.mixed_port, self.api_port, len(proxies),
+            "启动 mihomo (api=%d, %d 个节点, %d 个 listener)...",
+            self.api_port, len(proxies), len(config.get("listeners", [])),
         )
 
         self.stderr_log = Path(self.tmpdir) / "mihomo_stderr.log"
@@ -201,8 +244,10 @@ class MihomoInstance:
             exit_code = self.proc.poll()
             self.stderr_file.close()
             err_msg = self.stderr_log.read_text(encoding="utf-8")
-            logger.error("mihomo 启动失败或超时 (ExitCode: %s)。日志内容:\n%s", 
-                         exit_code, err_msg)
+            logger.error(
+                "mihomo 启动失败或超时 (ExitCode: %s)。日志内容:\n%s",
+                exit_code, err_msg,
+            )
             self.stop()
             return False
 
@@ -244,72 +289,100 @@ def test_proxies(
     mihomo_bin: str = "mihomo",
     test_url: str = "https://www.gstatic.com/generate_204",
     timeout: int = 10,
+    concurrency: int = 20,
 ) -> list[dict]:
-    """批量测试节点：连通性 + 获取出口 IP。
+    """批量并发测试节点：连通性 + 获取出口 IP。
 
-    启动单个 mihomo 实例，通过 API 逐个切换节点测试。
+    单个 mihomo 实例 + 多 listeners 端口，通过线程池并发测试。
+    节点按 concurrency 分批，每批启动一次 mihomo。
+
+    Args:
+        proxies: 节点列表
+        mihomo_bin: mihomo 二进制路径
+        test_url: 测试 URL
+        timeout: 超时秒数
+        concurrency: 并发数（每批同时测试的节点数）
 
     Returns:
-        [
-            {
-                "name": "节点名",
-                "alive": True/False,
-                "delay": 123,
-                "exit_ip": "1.2.3.4" | None,
-                "error": "..." | None,
-            },
-            ...
-        ]
+        [{"name", "alive", "delay", "exit_ip", "error"}, ...]
     """
     if not proxies:
         return []
 
     results = []
+    total = len(proxies)
+    batch_size = concurrency
 
-    with MihomoInstance(mihomo_bin) as mi:
-        if not mi.start(proxies):
-            # mihomo 启动失败，所有节点标记为失败
-            return [
+    logger.info("并发测试: %d 个节点, 每批 %d 个并发", total, batch_size)
+
+    # 分批处理
+    for batch_start in range(0, total, batch_size):
+        batch = proxies[batch_start:batch_start + batch_size]
+        batch_num = batch_start // batch_size + 1
+        total_batches = (total + batch_size - 1) // batch_size
+        logger.info("── 批次 %d/%d (%d 个节点) ──", batch_num, total_batches, len(batch))
+
+        # 为本批节点分配端口
+        try:
+            ports = _find_free_ports(len(batch), start=20000)
+        except RuntimeError as e:
+            logger.error("端口分配失败: %s", e)
+            results.extend(
                 {"name": p.get("name", "?"), "alive": False,
-                 "delay": 0, "exit_ip": None, "error": "mihomo 启动失败"}
-                for p in proxies
-            ]
-
-        total = len(proxies)
-        for i, proxy in enumerate(proxies):
-            name = proxy.get("name", "unknown")
-            result = {"name": name, "alive": False, "delay": 0, "exit_ip": None}
-
-            # 切换节点
-            if not _switch_proxy(mi.api_port, name):
-                result["error"] = "切换节点失败"
-                logger.info("  [%d/%d] ✗ %s - 切换失败", i + 1, total, name)
-                results.append(result)
-                continue
-
-            # 短暂等待连接建立
-            time.sleep(0.3)
-
-            # 测延迟
-            alive, delay = _test_delay(mi.mixed_port, test_url, timeout)
-            result["alive"] = alive
-            result["delay"] = delay
-
-            if not alive:
-                result["error"] = "连接超时或失败"
-                logger.info("  [%d/%d] ✗ %s - 不可用", i + 1, total, name)
-                results.append(result)
-                continue
-
-            # 获取出口 IP
-            exit_ip = _get_exit_ip(mi.mixed_port, timeout=timeout)
-            result["exit_ip"] = exit_ip
-
-            logger.info(
-                "  [%d/%d] ✓ %s - %dms - 出口IP: %s",
-                i + 1, total, name, delay, exit_ip or "未知",
+                 "delay": 0, "exit_ip": None, "error": "端口分配失败"}
+                for p in batch
             )
-            results.append(result)
+            continue
+
+        # 构建 name → port 映射（需要处理重名，与 _generate_config 一致）
+        seen_names = {}
+        resolved_names = []
+        for p in batch:
+            name = p.get("name", "unknown")
+            if name in seen_names:
+                seen_names[name] += 1
+                name = f"{name}_{seen_names[name]}"
+            else:
+                seen_names[name] = 0
+            resolved_names.append(name)
+
+        port_map = dict(zip(resolved_names, ports))
+
+        with MihomoInstance(mihomo_bin) as mi:
+            if not mi.start(batch, port_map):
+                results.extend(
+                    {"name": p.get("name", "?"), "alive": False,
+                     "delay": 0, "exit_ip": None, "error": "mihomo 启动失败"}
+                    for p in batch
+                )
+                continue
+
+            # 等待 listeners 就绪
+            time.sleep(1)
+
+            # 并发测试本批所有节点
+            with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                futures = {}
+                for i, (rname, port) in enumerate(port_map.items()):
+                    global_idx = batch_start + i + 1
+                    future = executor.submit(
+                        _test_single_proxy,
+                        rname, port, test_url, timeout,
+                        global_idx, total,
+                    )
+                    futures[future] = rname
+
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except Exception as e:
+                        name = futures[future]
+                        logger.error("测试节点异常 %s: %s", name, e)
+                        results.append({
+                            "name": name, "alive": False,
+                            "delay": 0, "exit_ip": None, "error": str(e),
+                        })
 
     alive_count = sum(1 for r in results if r["alive"])
     logger.info("测试完成: %d/%d 存活", alive_count, total)

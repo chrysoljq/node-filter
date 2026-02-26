@@ -22,6 +22,7 @@ env:
 #   WORKER_URL       — Worker 地址 (https://sub-worker.xxx.workers.dev)
 #   WORKER_AUTH_TOKEN — 管理 API 令牌
 #   WORKER_SUB_TOKEN — 订阅获取令牌 (可选，仅备用直接拉取时用)
+#   ABUSEIPDB_API_KEY — AbuseIPDB API Key (可选，增强 IP 检测准确度)
 
 jobs:
   filter:
@@ -114,7 +115,20 @@ jobs:
       - name: Run filter
         env:
           MODE: ${{ github.event.inputs.mode || 'precise' }}
+          ABUSEIPDB_API_KEY: ${{ secrets.ABUSEIPDB_API_KEY }}
         run: |
+          # 注入 AbuseIPDB API Key
+          if [ -n "$ABUSEIPDB_API_KEY" ]; then
+            python3 -c "
+          import yaml, pathlib
+          p = pathlib.Path('config.yaml')
+          c = yaml.safe_load(p.read_text())
+          c.setdefault('filter', {}).setdefault('abuseipdb', {})['api_key'] = '$ABUSEIPDB_API_KEY'
+          p.write_text(yaml.dump(c, allow_unicode=True, default_flow_style=False, sort_keys=False))
+          "
+            echo 'AbuseIPDB API Key 已注入'
+          fi
+
           ARGS=""
           for f in /tmp/subs/sub_*.yaml; do
             [ -f "$f" ] && ARGS="$ARGS -f $f"

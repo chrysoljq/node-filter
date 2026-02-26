@@ -141,6 +141,7 @@ datacenter_asns:
   46562: "Total Server Solutions"
   30633: "Leaseweb USA"
   59930: "Leaseweb Asia"
+  38136: "Akari Networks (https://akari.hk)"
 
 # 机房相关的关键词，用于辅助判断 org/isp 名称
 datacenter_keywords:

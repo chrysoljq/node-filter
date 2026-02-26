@@ -26,6 +26,15 @@ filter:
     mihomo_bin: "mihomo"
     test_url: "https://www.gstatic.com/generate_204"
     timeout: 5
+    # 并发数：每批同时测试的节点数量（每个节点分配一个独立 listener 端口）
+    concurrency: 20
+
+  # AbuseIPDB 配置（可选，增强 IP 质量检测准确度）
+  # 免费额度 1000 次/天，注册获取 API Key: https://www.abuseipdb.com/account/api
+  abuseipdb:
+    api_key: ""
+    # 风险评分阈值：>= 此分数判定为高风险（0-100）
+    abuse_score_threshold: 25
 
   # 名称关键词黑名单（包含这些词的节点直接过滤）
   name_blacklist:
